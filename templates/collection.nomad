@@ -31,9 +31,9 @@ job "collection-${name}" {
         }
       }
       env {
-        SNOOP_COLLECTION_ROOT = "/opt/hoover/collection"
-        SNOOP_TASK_PREFIX = "${name}"
-        SNOOP_ES_INDEX = "${name}"
+        COLLECTION_ROOT = "/opt/hoover/collection"
+        TASK_PREFIX = "${name}"
+        ES_INDEX = "${name}"
         SYNC_FILES = "${sync}"
       }
       template {
@@ -42,15 +42,15 @@ job "collection-${name}" {
         set -ex
         (
         set +x
-        if [ -z "$SNOOP_DB" ]; then
+        if [ -z "$DATABASE" ]; then
           echo "database not ready"
           sleep 5
           exit 1
         fi
         )
-        if  [ -z "$SNOOP_TIKA_URL" ] \
-                || [ -z "$SNOOP_ES_URL" ] \
-                || [ -z "$SNOOP_AMQP_URL" ]; then
+        if  [ -z "$TIKA_URL" ] \
+                || [ -z "$ES_URL" ] \
+                || [ -z "$AMQP_URL" ]; then
           echo "incomplete configuration!"
           sleep 5
           exit 1
@@ -66,20 +66,20 @@ job "collection-${name}" {
           DEBUG = {{key "liquid_debug" | toJSON }}
         {{- end }}
         {{- range service "snoop-${name}-pg" }}
-          SNOOP_DB = "postgresql://snoop:
+          DATABASE = "postgresql://snoop:
           {{- with secret "liquid/collections/${name}/snoop.postgres" -}}
             {{.Data.secret_key }}
           {{- end -}}
           @{{.Address}}:{{.Port}}/snoop"
         {{- end }}
         {{- range service "hoover-es" }}
-          SNOOP_ES_URL = "http://{{.Address}}:{{.Port}}"
+          ES_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}
         {{- range service "hoover-tika" }}
-          SNOOP_TIKA_URL = "http://{{.Address}}:{{.Port}}"
+          TIKA_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}
         {{- range service "snoop-${name}-rabbitmq" }}
-          SNOOP_AMQP_URL = "amqp://{{.Address}}:{{.Port}}"
+          AMQP_URL = "amqp://{{.Address}}:{{.Port}}"
         {{- end }}
         {{ range service "zipkin" }}
           TRACING_URL = "http://{{.Address}}:{{.Port}}"
@@ -128,9 +128,9 @@ job "collection-${name}" {
         }
       }
       env {
-        SNOOP_COLLECTION_ROOT = "/opt/hoover/collection"
-        SNOOP_TASK_PREFIX = "${name}"
-        SNOOP_ES_INDEX = "${name}"
+        COLLECTION_ROOT = "/opt/hoover/collection"
+        TASK_PREFIX = "${name}"
+        ES_INDEX = "${name}"
       }
       template {
         data = <<-EOF
@@ -138,15 +138,15 @@ job "collection-${name}" {
         set -ex
         (
         set +x
-        if [ -z "$SNOOP_DB" ]; then
+        if [ -z "$DATABASE" ]; then
           echo "database not ready"
           sleep 5
           exit 1
         fi
         )
-        if  [ -z "$SNOOP_TIKA_URL" ] \
-                || [ -z "$SNOOP_ES_URL" ] \
-                || [ -z "$SNOOP_AMQP_URL" ]; then
+        if  [ -z "$TIKA_URL" ] \
+                || [ -z "$ES_URL" ] \
+                || [ -z "$AMQP_URL" ]; then
           echo "incomplete configuration!"
           sleep 5
           exit 1
@@ -169,22 +169,22 @@ job "collection-${name}" {
           SECRET_KEY = {{.Data.secret_key | toJSON }}
         {{- end }}
         {{- range service "snoop-${name}-pg" }}
-          SNOOP_DB = "postgresql://snoop:
+          DATABASE = "postgresql://snoop:
           {{- with secret "liquid/collections/${name}/snoop.postgres" -}}
             {{.Data.secret_key }}
           {{- end -}}
           @{{.Address}}:{{.Port}}/snoop"
         {{- end }}
         {{- range service "hoover-es" }}
-          SNOOP_ES_URL = "http://{{.Address}}:{{.Port}}"
+          ES_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}
         {{- range service "hoover-tika" }}
-          SNOOP_TIKA_URL = "http://{{.Address}}:{{.Port}}"
+          TIKA_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}
         {{- range service "snoop-${name}-rabbitmq" }}
-          SNOOP_AMQP_URL = "amqp://{{.Address}}:{{.Port}}"
+          AMQP_URL = "amqp://{{.Address}}:{{.Port}}"
         {{- end }}
-        SNOOP_HOSTNAME = "${name}.snoop.{{ key "liquid_domain" }}"
+        HOSTNAME = "${name}.snoop.{{ key "liquid_domain" }}"
         {{- range service "zipkin" }}
           TRACING_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}

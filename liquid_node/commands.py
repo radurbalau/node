@@ -95,8 +95,12 @@ def wait_for_service_health_checks(health_checks):
                 yield service, check, status
 
     t0 = time()
+    next_status = t0
     last_check_timestamps = {}
     passing_count = defaultdict(int)
+
+    def timebox():
+        return f"[{time() - t0:4.1f}]"
 
     def log_checks(checks):
         max_service_len = max(len(s) for s in health_checks.keys())
@@ -107,7 +111,7 @@ def wait_for_service_health_checks(health_checks):
             after = f'{now - last_time:+.1f}s'
             last_check_timestamps[service, check] = now
 
-            line = f'[{time() - t0:4.1f}] {service:>{max_service_len}}: {check:<{max_name_len}} {status.upper():<8} {after:>5}'  # noqa: E501
+            line = f'{timebox()} {service:>{max_service_len}}: {check:<{max_name_len}} {status.upper():<8} {after:>5}'  # noqa: E501
 
             if status == 'passing':
                 passing_count[service, check] += 1
@@ -117,6 +121,16 @@ def wait_for_service_health_checks(health_checks):
             else:
                 log.warning(line)
 
+    def print_status(checks):
+        bad = [
+            f"{service}:{check}"
+            for service, check, status in checks
+            if status != 'passing'
+        ]
+        total = len(checks)
+        good = total - len(bad)
+        line = f"{timebox()} {good}/{total}, waiting for: {', '.join(bad)}"
+
     services = sorted(health_checks.keys())
     log.info(f"Waiting for health checks on {services}")
 
@@ -124,12 +138,17 @@ def wait_for_service_health_checks(health_checks):
     timeout = t0 + config.wait_max + config.wait_interval * config.wait_green_count
     last_checks = set(get_checks())
     log_checks(last_checks)
+
     while time() < timeout:
         sleep(config.wait_interval)
 
         checks = set(get_checks())
         log_checks(checks - last_checks)
         last_checks = checks
+
+        if time() > next_status:
+            print_status(checks)
+            next_status = time() + 5
 
         if any(status != 'passing' for _, _, status in checks):
             greens = 0

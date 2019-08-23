@@ -11,6 +11,8 @@ import sys
 from urllib.error import HTTPError
 import colorlog
 import click
+import shutil
+import gzip
 
 from liquid_node.collections import push_collections_titles
 from liquid_node.import_from_docker import validate_names, ensure_docker_setup_stopped, \
@@ -25,8 +27,7 @@ from liquid_node.util import first
 from liquid_node.collections import get_search_collections
 from liquid_node.docker import docker
 from liquid_node.vault import vault
-from liquid_node.import_from_docker import import_collection
-
+from liquid_node.import_from_docker import import_collection, import_dir, import_file
 
 @click.group()
 def liquid_commands():
@@ -164,6 +165,18 @@ def wait_for_service_health_checks(health_checks):
     log_checks(checks, as_error=True)
     msg = f'Checks are failed after {time() - t0:.02f}s.'
     raise RuntimeError(msg)
+
+
+def confirm(confirm_statement):
+    answer = ''
+    while answer.lower() not in ("y", "n"):
+        answer = input(confirm_statement + ' y/n: ')
+        if answer.lower() == "y":
+            return True
+        elif answer.lower() == "n":
+            return False
+        else:
+            print("Please enter y or n.")
 
 
 @liquid_commands.command()
@@ -326,7 +339,7 @@ def deploy():
     for collection in sorted(config.collections.keys()):
         if collection not in already_initialized:
             log.info('Initializing collection: %s', collection)
-            initcollection(collection)
+            init_collection_wrapper(collection)
         else:
             log.info('Already initialized collection: %s', collection)
 
@@ -404,15 +417,10 @@ def alloc(job, group):
     print(first(running, 'running allocations'))
 
 
-@liquid_commands.command()
-@click.argument('name')
-def initcollection(name):
-    """Initialize collection with given name.
-
-    Create the snoop database, create the search index, run dispatcher, add collection
-    to search.
-
-    :param name: the collection name
+def init_collection_wrapper(name):
+    """
+    Functions to make init collection callable as a click command
+    and from deployment
     """
 
     if name not in config.collections:
@@ -422,7 +430,17 @@ def initcollection(name):
         log.warning(f'Collection "{name}" was already initialized.')
         return
 
-    docker.exec_(f'snoop-{name}-api', './manage.py', 'initcollection')
+    index_path = Path(config.liquid_volumes) / 'collections' / name / 'index' / f'{name}-index.tgz'
+    if index_path.is_file():
+        log.info(f'found index for {name}, importing index instead of creating it')
+        with open(index_path, "r") as index_file:
+            docker.exec_(
+                f'snoop-{name}-api',
+                './manage.py', 'importindex',
+                stdin=index_file, interactive=True
+            )
+    else:
+        docker.exec_(f'snoop-{name}-api', './manage.py', 'initcollection')
 
     docker.exec_(
         'hoover-search',
@@ -431,6 +449,22 @@ def initcollection(name):
         f'http://{nomad.get_address()}:8765/{name}/collection/json',
         '--public',
     )
+
+
+
+@liquid_commands.command()
+@click.argument('name')
+def initcollection(name):
+    """Initialize collection with given name.
+
+    Create the snoop database, create the search index, run dispatcher, add collection
+    to search.
+    Check, whether an index is stored for the collection. if so, imports the index instead
+    of indexing.
+    :param name: the collection name
+    """
+
+    init_collection_wrapper(name)
 
 
 @liquid_commands.command()
@@ -475,6 +509,108 @@ def deletecollection(name):
     """Delete a collection by name"""
     nomad.stop(f'collection-{name}')
     purge_collection(name)
+
+
+@liquid_commands.command()
+@click.argument('name')
+@click.argument('path')
+@click.option('--method', default='copy', type=click.Choice(['copy', 'link', 'move']))
+def importcollection(name, path, method='copy'):
+    """Import a single collection extracted collection.
+    The path must contain:
+    1. The blobs folder, named `blobs`
+    2. The database folder, named `pg`, containing a subfolder called `data`.
+    3. the index, named <name>-index.tgz
+    :param name: name of the collection you want to import
+    :param path: path to the collection data.
+    :param method: can be 'copy', 'move' or  'link'. Copy is default.
+    """
+    path = Path(path).resolve()
+    database = path / 'pg'
+    blobs = path / 'blobs'
+    index = path / f'{name}-index.tgz'
+    log.info(f'Importing collection {name}')
+
+    node_name = name.lower()
+    if name != node_name:
+        log.info(f'Renaming "{name}" to "{node_name}"')
+    collection_path = Path(config.liquid_volumes) / 'collections' / node_name
+    if collection_path.exists():
+        if confirm(f'collection {name} already exists, overwrite (hoover needs to be running)?'):
+            redeploy = True
+            purge_collection(name)
+        else:
+            log.info(f'exiting and not overwriting data for {name}')
+            exit()
+    else:
+        redeploy = False
+        (collection_path).mkdir(parents=True)
+
+    # copy the pg dir
+    database = Path(database).resolve(strict=True)
+    if not (database / 'data' / 'PG_VERSION').exists():
+        raise RuntimeError("database is not a valid Postgres database")
+    pg_src = database
+    pg_dst = collection_path / 'pg'
+    import_dir(pg_src, pg_dst, method=method)
+
+    # copy the blobs dir
+    blobs = Path(blobs).resolve(strict=True)
+    blob_src = blobs
+    blob_dst = collection_path / 'blobs'
+    import_dir(blob_src, blob_dst, method=method)
+    (collection_path / 'index').mkdir()
+    # copy or link the index
+    index = Path(index).resolve(strict=True)
+
+    index_dst = collection_path / 'index' / f'{name}-index.tgz'
+    import_file(index, index_dst, method=method)
+
+    log.info(f'Imported collection using method: {method}')
+    if redeploy:
+        print(f'redeploy in order to make changes to {name} available.')
+    else:
+        print('add the following line to liquid.ini')
+        print(f'[collection:{name}]')
+
+
+@liquid_commands.command()
+@click.argument('name')
+def exportcollection(name):
+    """Export a collection from node. Liquid has to be running.
+    :param name: name of the collection you want to export.
+    """
+    if name not in config.collections:
+        raise RuntimeError(f'Collection {name} does not exist in the liquid.ini file.')
+    export_path = Path(config.liquid_collections) / 'exported' / name
+    if export_path.exists():
+        if confirm(f'collection {name} already has exported files in {export_path}, overwrite?'):
+            shutil.rmtree(export_path)
+        else:
+            log.info(f'exiting and not overwriting data for {name}')
+            exit()
+    else:
+        (export_path).mkdir(parents=True)
+    # copy the pg dir
+    database = Path(config.liquid_volumes) / 'collections' / name / 'pg'
+    pg_src = database
+    pg_dst = export_path / 'pg'
+    import_dir(pg_src, pg_dst, method='copy')
+
+    # copy the blobs dir
+    blobs = Path(config.liquid_volumes) / 'collections' / name / 'blobs'
+    blob_src = blobs
+    blob_dst = export_path / 'blobs'
+    import_dir(blob_src, blob_dst, method='copy')
+
+    log.info(f'found index for {name}, importing index instead of creating it')
+    with gzip.open(export_path / f'{name}-index.tgz', "w") as index_file:
+        docker.exec_(
+            f'snoop-{name}-api',
+            './manage.py', 'exportindex',
+            stdout=index_file, interactive=True
+        )
+    log.info(f'collection {name} exported to {export_path}')
 
 
 @liquid_commands.command()

@@ -29,6 +29,7 @@ from liquid_node.docker import docker
 from liquid_node.vault import vault
 from liquid_node.import_from_docker import import_collection, import_dir, import_file
 
+
 @click.group()
 def liquid_commands():
     """ Manage liquid on a nomad cluster. """
@@ -449,7 +450,6 @@ def init_collection_wrapper(name):
         f'http://{nomad.get_address()}:8765/{name}/collection/json',
         '--public',
     )
-
 
 
 @liquid_commands.command()

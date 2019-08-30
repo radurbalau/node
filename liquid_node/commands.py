@@ -415,7 +415,8 @@ def initcollection(name):
     if name in get_search_collections():
         log.warning(f'Collection "{name}" was already initialized.')
         return
-    index_path = Path(config.liquid_volumes) / 'collections' / name / 'index' / f'{name}-index.tgz'
+    collection_path = Path(config.liquid_volumes) / 'collections' / name
+    index_path = collection_path / 'index' / f'{name}-index.tgz'
     if index_path.is_file():
         log.info(f'found index for {name}, importing index instead of creating it')
         with open(index_path, "r") as index_file:
@@ -423,6 +424,13 @@ def initcollection(name):
                 f'snoop-{name}-api',
                 './manage.py', 'importindex',
                 stdin=index_file, interactive=True
+            )
+        pg_dump = collection_path / 'pg_dump'
+        with open(pg_dump, "r") as pg_dump:
+            docker.exec_(
+                f'snoop-{name}-pg',
+                'pg_restore',
+                stdin=pg_dump
             )
     else:
         docker.exec_(f'snoop-{name}-api', './manage.py', 'initcollection')
@@ -476,7 +484,7 @@ def deletecollection(name):
 
 
 def importcollection(name, path, method='copy'):
-    """Import a single collection extracted collection.
+    """Import a single collection extracted collection. Liquid must be running.
     The path must contain:
     1. The blobs folder, named `blobs`
     2. The database folder, named `pg`, containing a subfolder called `data`.
@@ -487,8 +495,8 @@ def importcollection(name, path, method='copy'):
     :param method: can be 'copy', 'move' or  'link'. Copy is default.
     """
     path = Path(path).resolve()
-    database = path / 'pg'
-    blobs = path / 'blobs'
+    database = path / 'pg_dump'
+    blobs = path / 'blobs.tgz'
     index = path / f'{name}-index.tgz'
     log.info(f'Importing collection {name}')
     # parsing `method`, which is not interpreted as a kwarg
@@ -512,19 +520,15 @@ def importcollection(name, path, method='copy'):
         redeploy = False
         (collection_path).mkdir(parents=True)
 
-    # copy the pg dir
-    database = Path(database).resolve(strict=True)
-    if not (database / 'data' / 'PG_VERSION').exists():
-        raise RuntimeError("database is not a valid Postgres database")
+    # copy the pg dump
     pg_src = database
-    pg_dst = collection_path / 'pg'
-    import_dir(pg_src, pg_dst, method=method)
+    pg_dst = collection_path
+    import_file(pg_src, pg_dst, method=method)
 
-    # copy the blobs dir
-    blobs = Path(blobs).resolve(strict=True)
-    blob_src = blobs
-    blob_dst = collection_path / 'blobs'
-    import_dir(blob_src, blob_dst, method=method)
+    # extract the blobs file
+    tar = tarfile.open(blobs, "r:gz")
+    tar.extractall(path=collection_path)
+    tar.close()
 
     # copy or link the index
     (collection_path / 'index').mkdir()
@@ -561,12 +565,13 @@ def exportcollection(name):
     collection_volumes = Path(config.liquid_volumes) / 'collections' / name
 
     # dumping the database
-    with gzip.open(export_path / 'pg_dump.tgz', "w") as pg_dump:
+    with gzip.open(export_path / 'pg_dump', "w") as pg_dump:
         docker.exec_(
             f'snoop-{name}-pg',
             'pg_dump', '-Ox', '-U', 'snoop', 'snoop',
             stdout=pg_dump, interactive=True
         )
+
     log.info(f'dumped database to {export_path}')
 
     # copy the blobs dir

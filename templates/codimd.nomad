@@ -158,7 +158,7 @@ job "codimd" {
       'codimd',
       host='codimd.' + liquid_domain,
       upstream='codimd-app',
-      threads=150,
-      memory=500,
+      threads=100,
+      memory=300,
     ) }
 }

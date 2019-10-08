@@ -76,6 +76,14 @@ job "hoover-deps" {
           interval = "${check_interval}"
           timeout = "${check_timeout}"
         }
+        check {
+          name = "search"
+          initial_status = "warning"
+          type = "http"
+          path = "/_all/_search?q=*&_source=false&sort=date:desc"
+          interval = "55s"
+          timeout = "29s"
+        }
       }
       service {
         name = "hoover-es-master-transport"
@@ -151,6 +159,14 @@ job "hoover-deps" {
           path = "/_cluster/health"
           interval = "${check_interval}"
           timeout = "${check_timeout}"
+        }
+        check {
+          name = "search"
+          initial_status = "warning"
+          type = "http"
+          path = "/_all/_search?q=*&_source=false&sort=date:desc"
+          interval = "45s"
+          timeout = "29s"
         }
       }
       service {

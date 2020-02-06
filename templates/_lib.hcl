@@ -29,7 +29,7 @@
 
         {{- range service "snoop-${name}-redis" }}
           AIRFLOW__CELERY__BROKER_URL = "redis://{{.Address}}:{{.Port}}/0"
-          AIRFLOW__CELERY__RESULT_BACKEND = "redis://{{.Address}}:{{.Port}}/1"
+          AIRFLOW__CELERY__RESULT_BACKEND = "redis://{{.Address}}:{{.Port}}/0"
         {{- end }}
 
         EOF

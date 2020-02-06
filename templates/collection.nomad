@@ -247,6 +247,9 @@ job "collection-${name}" {
       template {
         data = <<-EOF
           #!/bin/bash
+          airflow upgradedb
+          airflow connections --delete --conn_id minio_logs || true
+          airflow connections --add --conn_id minio_logs --conn_type s3 --conn_extra "$AIRFLOW_MINIO_LOGS_EXTRA"
           exec airflow scheduler --pid /local/pid.txt
           EOF
         env = false
@@ -286,9 +289,6 @@ job "collection-${name}" {
       template {
         data = <<-EOF
           #!/bin/bash
-          airflow upgradedb
-          airflow connections --delete --conn_id minio_logs || true
-          airflow connections --add --conn_id minio_logs --conn_type s3 --conn_extra "$AIRFLOW_MINIO_LOGS_EXTRA"
           exec airflow webserver --pid /local/pid.txt
           EOF
         env = false
@@ -319,5 +319,62 @@ job "collection-${name}" {
         }
       }
     }
+  }
+
+  group "flower" {
+    task "flower" {
+      ${ task_logs() }
+
+      driver = "docker"
+      config {
+        image = "${config.image('hoover-snoop2')}"
+        force_pull = "true"
+
+        args = ["sh", "/local/startup.sh"]
+        volumes = [
+          ${hoover_snoop2_repo}
+        ]
+        labels {
+          liquid_task = "snoop-${name}-flower"
+        }
+        port_map {
+          http = 5555
+        }
+      }
+
+      ${ airflow_env_template() }
+
+      template {
+        data = <<-EOF
+        #!/bin/bash
+        set -ex
+        exec airflow flower -u "/_flower/${name}" --pid /local/pid.txt
+        EOF
+        env = false
+        destination = "local/startup.sh"
+      }
+      resources {
+        memory = 400
+        network {
+          mbits = 1
+          port "http" {}
+        }
+      }
+      service {
+        name = "airflow-flower-${name}"
+        tags = ["snoop-/_flower/${name}"]
+        port = "http"
+        check {
+          name = "http"
+          initial_status = "critical"
+          type = "http"
+          path = "/_flower/${name}/logout"
+          interval = "${check_interval}"
+          timeout = "${check_timeout}"
+        }
+      }
+    }
+
+    ${ promtail_task() }
   }
 }

@@ -62,6 +62,7 @@ job "collection-${name}-deps" {
       driver = "docker"
       config {
         image = "redis:5"
+        args = ["redis-server", "--appendonly", "yes"]
         volumes = [
           "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/redis/redis:/data",
         ]

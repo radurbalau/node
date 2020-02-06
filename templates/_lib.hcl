@@ -27,15 +27,9 @@
           \"host\": \"http://{{.Address}}:{{.Port}}\" }"
         {{- end -}}
 
-        {{- range service "snoop-${name}-rabbitmq" }}
-          AIRFLOW__CELERY__BROKER_URL = "amqp://{{.Address}}:{{.Port}}"
-        {{- end }}
-        {{- range service "snoop-${name}-airflow-pg" }}
-          AIRFLOW__CELERY__RESULT_BACKEND = "db+postgresql://airflow:
-          {{- with secret "liquid/collections/${name}/airflow.postgres" -}}
-            {{.Data.secret_key }}
-          {{- end -}}
-          @{{.Address}}:{{.Port}}/airflow"
+        {{- range service "snoop-${name}-redis" }}
+          AIRFLOW__CELERY__BROKER_URL = "redis://{{.Address}}:{{.Port}}/0"
+          AIRFLOW__CELERY__RESULT_BACKEND = "redis://{{.Address}}:{{.Port}}/1"
         {{- end }}
 
         EOF

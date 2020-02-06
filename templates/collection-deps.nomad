@@ -51,6 +51,48 @@ job "collection-${name}-deps" {
       }
     }
 
+    task "redis" {
+      constraint {
+        attribute = "{% raw %}${meta.liquid_volumes}{% endraw %}"
+        operator = "is_set"
+      }
+
+      ${ task_logs() }
+
+      driver = "docker"
+      config {
+        image = "redis:5"
+        volumes = [
+          "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/redis/redis:/data",
+        ]
+        port_map {
+          redis = 6379
+        }
+        labels {
+          liquid_task = "snoop-${name}-redis"
+        }
+      }
+      resources {
+        memory = ${rabbitmq_memory_limit}
+        cpu = 150
+        network {
+          mbits = 1
+          port "redis" {}
+        }
+      }
+      service {
+        name = "snoop-${name}-redis"
+        port = "redis"
+        check {
+          name = "tcp"
+          initial_status = "critical"
+          type = "tcp"
+          interval = "${check_interval}"
+          timeout = "${check_timeout}"
+        }
+      }
+    }
+
     ${ promtail_task() }
   }
   {% endif %}

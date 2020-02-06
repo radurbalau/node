@@ -175,9 +175,9 @@ job "collection-${name}-deps" {
 
       driver = "docker"
       config {
-        image = "postgres:9.6"
+        image = "postgres:12"
         volumes = [
-          "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/airflow-pg/data:/var/lib/postgresql/data",
+          "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/airflow-pg/12/data:/var/lib/postgresql/data",
         ]
         labels {
           liquid_task = "snoop-${name}-airflow-pg"

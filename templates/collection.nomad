@@ -78,6 +78,8 @@ job "collection-${name}" {
         SNOOP_TIKA_URL = "http://{% raw %}${attr.unique.network.ip-address}{% endraw %}:8765/_tika/"
         SNOOP_WORKER_COUNT = "${worker_process_count}"
 
+        AIRFLOW__CELERY__WORKER_CONCURRENCY = "${worker_process_count}"
+
         C_FORCE_ROOT = "YESPLEASE"
       }
       template {
@@ -362,13 +364,13 @@ job "collection-${name}" {
       }
       service {
         name = "airflow-flower-${name}"
-        tags = ["snoop-/_flower/${name}"]
+        tags = ["snoop-/_flower/${name} strip=/_flower/${name}"]
         port = "http"
         check {
           name = "http"
           initial_status = "critical"
           type = "http"
-          path = "/_flower/${name}/logout"
+          path = "/logout"
           interval = "${check_interval}"
           timeout = "${check_timeout}"
         }

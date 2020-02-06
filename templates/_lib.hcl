@@ -8,9 +8,6 @@
           {{- end -}}
           @{{.Address}}:{{.Port}}/airflow"
         {{- end }}
-        {{ range service "dask-scheduler-${name}" -}}
-          AIRFLOW__DASK__CLUSTER_ADDRESS = "{{.Address}}:{{.Port}}"
-        {{- end }}
         {{ range service "telegraf" -}}
           AIRFLOW__SCHEDULER__STATSD_HOST = "{{.Address}}"
         {{- end }}
@@ -29,19 +26,21 @@
           {{- end -}}
           \"host\": \"http://{{.Address}}:{{.Port}}\" }"
         {{- end -}}
+
+        {{- range service "snoop-${name}-rabbitmq" }}
+          AIRFLOW__CELERY__BROKER_URL = "amqp://{{.Address}}:{{.Port}}"
+        {{- end }}
+        {{- range service "snoop-${name}-airflow-pg" }}
+          AIRFLOW__CELERY__RESULT_BACKEND = "db+postgresql://airflow:
+          {{- with secret "liquid/collections/${name}/airflow.postgres" -}}
+            {{.Data.secret_key }}
+          {{- end -}}
+          @{{.Address}}:{{.Port}}/airflow"
+        {{- end }}
+
         EOF
         destination = "local/airflow.env"
         env = true
-      }
-{%- endmacro %}
-
-{%- macro dask_env_template() %}
-      env {
-        "DASK_DISTRIBUTED__ADMIN__TICK__INTERVAL" = "1000ms"
-        "DASK_DISTRIBUTED__WORKER__PROFILE__INTERVAL" = "100ms"
-        "DASK_DISTRIBUTED__WORKER__PROFILE__CYCLE" = "10000ms"
-        "DASK_DISTRIBUTED__SCHEDULER__WORK_STEALING" = "True"
-        "DASK_DISTRIBUTED__SCHEDULER__ALLOWED_FAILURES" = "2"
       }
 {%- endmacro %}
 

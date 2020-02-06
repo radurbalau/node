@@ -1,4 +1,4 @@
-{% from '_lib.hcl' import group_disk, task_logs, continuous_reschedule, set_pg_password_template, promtail_task, airflow_env_template, dask_env_template with context -%}
+{% from '_lib.hcl' import group_disk, task_logs, continuous_reschedule, set_pg_password_template, promtail_task, airflow_env_template with context -%}
 
 job "collection-${name}" {
   datacenters = ["dc1"]
@@ -32,11 +32,7 @@ job "collection-${name}" {
           ${hoover_snoop2_repo}
           "{% raw %}${meta.liquid_collections}{% endraw %}/${name}:/opt/hoover/collection",
           "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/blobs:/opt/hoover/snoop/blobs",
-          "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/dask-worker-{% raw %}${NOMAD_ALLOC_INDEX}{% endraw %}:/dask-worker",
         ]
-        port_map {
-          flower = 5555
-        }
         labels {
           liquid_task = "snoop-${name}-worker"
         }
@@ -51,8 +47,6 @@ job "collection-${name}" {
 
       ${ airflow_env_template() }
 
-      ${ dask_env_template() }
-
       env {
         HOST = "{% raw %}${attr.unique.network.ip-address}{% endraw %}"
         WORKER_PORT = "{% raw %}${NOMAD_HOST_PORT_worker}{% endraw %}"
@@ -65,7 +59,6 @@ job "collection-${name}" {
         set -ex
         if  [ -z "$SNOOP_TIKA_URL" ] \
                 || [ -z "$SNOOP_DB" ] \
-                || [ -z "$SNOOP_DASK_SCHEDULER_URL" ] \
                 || [ -z "$SNOOP_ES_URL" ] \
                 || [ -z "$SNOOP_AMQP_URL" ]; then
           echo "incomplete configuration!"
@@ -73,19 +66,7 @@ job "collection-${name}" {
           exit 1
         fi
 
-        dask-worker \
-                --listen-address "tcp://0.0.0.0:$WORKER_PORT" \
-                --contact-address "tcp://$HOST:$WORKER_PORT" \
-                --dashboard-address "0.0.0.0:$DASH_PORT" \
-                --no-nanny \
-                --nthreads 1 \
-                --nprocs 1 \
-                --memory-limit "${worker_memory_limit}M" \
-                --local-directory "/dask-worker" \
-                --preload "/opt/hoover/snoop/django_setup.py" \
-                --dashboard-prefix "/_dask/${name}/worker" \
-                --death-timeout "40" \
-                "$SNOOP_DASK_SCHEDULER_URL"
+        exec airflow worker --skip_serve_logs --pid /local/pid.txt
         EOF
         env = false
         destination = "local/startup.sh"
@@ -96,6 +77,8 @@ job "collection-${name}" {
         SNOOP_STATS_ES_PREFIX = ".hoover-snoopstats-"
         SNOOP_TIKA_URL = "http://{% raw %}${attr.unique.network.ip-address}{% endraw %}:8765/_tika/"
         SNOOP_WORKER_COUNT = "${worker_process_count}"
+
+        C_FORCE_ROOT = "YESPLEASE"
       }
       template {
         data = <<-EOF
@@ -115,9 +98,6 @@ job "collection-${name}" {
         {{ range service "zipkin" }}
           TRACING_URL = "http://{{.Address}}:{{.Port}}"
         {{- end }}
-        {{ range service "dask-scheduler-${name}" -}}
-          SNOOP_DASK_SCHEDULER_URL = "tcp://{{.Address}}:{{.Port}}"
-        {{- end }}
         EOF
         destination = "local/snoop.env"
         env = true
@@ -126,32 +106,6 @@ job "collection-${name}" {
         memory = ${worker_memory_limit}
         network {
           mbits = 1
-          port "dashboard" {}
-          port "worker" {}
-        }
-      }
-      service {
-        name = "dask-worker-ui-${name}"
-        port = "dashboard"
-        tags = ["snoop-/_dask/${name}/worker"]
-        check {
-          name = "http"
-          initial_status = "critical"
-          path = "/_dask/${name}/worker/"
-          type = "http"
-          interval = "${check_interval}"
-          timeout = "${check_timeout}"
-        }
-      }
-      service {
-        name = "dask-worker-${name}"
-        port = "worker"
-        check {
-          name = "tcp"
-          initial_status = "critical"
-          type = "tcp"
-          interval = "${check_interval}"
-          timeout = "${check_timeout}"
         }
       }
     }
@@ -243,9 +197,6 @@ job "collection-${name}" {
         SNOOP_HOSTNAME = "${name}.snoop.{{ key "liquid_domain" }}"
         {{- range service "zipkin" }}
           TRACING_URL = "http://{{.Address}}:{{.Port}}"
-        {{- end }}
-        {{ range service "dask-scheduler-${name}" -}}
-          SNOOP_DASK_SCHEDULER_URL = "tcp://{{.Address}}:{{.Port}}"
         {{- end }}
         EOF
         destination = "local/snoop.env"

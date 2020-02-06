@@ -1,4 +1,4 @@
-{% from '_lib.hcl' import group_disk, task_logs, continuous_reschedule, set_pg_password_template, promtail_task, airflow_env_template, dask_env_template with context -%}
+{% from '_lib.hcl' import group_disk, task_logs, continuous_reschedule, set_pg_password_template, promtail_task, airflow_env_template with context -%}
 
 job "collection-${name}-deps" {
   datacenters = ["dc1"]
@@ -195,7 +195,7 @@ job "collection-${name}-deps" {
       driver = "docker"
       config {
         image = "minio/minio:RELEASE.2020-01-25T02-50-51Z"
-        args = ["server", "/data"]
+        entrypoint = ["/bin/sh", "-c", "mkdir -p /data/logs/logs && minio server /data"]
         volumes = [
           "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/airflow-minio/data:/data",
         ]
@@ -238,118 +238,6 @@ job "collection-${name}-deps" {
           path = "/minio/health/live"
           interval = "${check_interval}"
           timeout = "${check_timeout}"
-        }
-      }
-    }
-
-    ${ promtail_task() }
-  }
-
-  group "dask-scheduler" {
-    task "scheduler" {
-      driver = "docker"
-      config {
-        image = "${config.image('hoover-snoop2')}"
-        force_pull = "true"
-
-        args = ["dask-scheduler", "--local-directory", "/data", "--dashboard-prefix", "/_dask/${name}/scheduler"]
-        volumes = [
-          "{% raw %}${meta.liquid_volumes}{% endraw %}/collections/${name}/dask-scheduler:/data",
-        ]
-
-        port_map {
-          tcp = 8786
-          http = 8787
-        }
-        labels {
-          liquid_task = "dask-scheduler-${name}"
-        }
-      }
-
-      ${ dask_env_template() }
-
-      resources {
-        memory = 500
-        cpu = 400
-        network {
-          mbits = 1
-          port "http" {}
-          port "tcp" {}
-        }
-      }
-      service {
-        name = "dask-scheduler-${name}-ui"
-        port = "http"
-        tags = ["snoop-/_dask/${name}/scheduler"]
-        check {
-          name = "http"
-          initial_status = "critical"
-          path = "/_dask/${name}/scheduler/"
-          type = "http"
-          interval = "${check_interval}"
-          timeout = "${check_timeout}"
-        }
-      }
-      service {
-        name = "dask-scheduler-${name}"
-        port = "tcp"
-        check {
-          name = "tcp"
-          initial_status = "critical"
-          type = "tcp"
-          interval = "${check_interval}"
-          timeout = "${check_timeout}"
-        }
-      }
-    }
-  }
-
-
-  group "dask-notebook" {
-    task "notebook" {
-      driver = "docker"
-      config {
-        image = "daskdev/dask-notebook:2.9.2"
-
-        port_map {
-          http = 8888
-        }
-        labels {
-          liquid_task = "dask-notebook"
-        }
-      }
-
-      template {
-        data = <<-EOF
-        DASK_SCHEDULER_ADDRESS={{- range service "dask-scheduler-${name}" -}}tcp://{{.Address}}:{{.Port}}{{- end -}}
-        EOF
-        env = true
-        destination = "local/env.sh"
-      }
-
-      resources {
-        memory = 400
-        cpu = 200
-        network {
-          mbits = 1
-          port "http" {}
-        }
-      }
-
-      service {
-        name = "dask-notebook"
-        port = "http"
-        check {
-          name = "http"
-          initial_status = "critical"
-          type = "http"
-          path = "/"
-          interval = "${check_interval}"
-          timeout = "${check_timeout}"
-        }
-        check_restart {
-          limit = 5
-          grace = "180s"
         }
       }
     }
